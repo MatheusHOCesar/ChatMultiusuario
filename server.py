@@ -19,8 +19,8 @@ def start_server():
     print(f"Conexão estabelecida com {addr}")
     #Bloqueia e execução até que o cliente se conecte.
 
-    
-    msg1 = f"Olá, cliente! A conexão foi estabelecida com sucesso."
+    agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    msg1 = f"Olá, cliente! A conexão foi estabelecida com sucesso em {agora}."
     conn.sendall(msg1.encode('utf-8'))
     #Coleta a hora atual, formata a mensagem e envia para o cliente
 
