@@ -1,6 +1,7 @@
 import socket
 import threading
 import sys
+import time
 
 HOST = '127.0.0.1'
 PORT = 5000
@@ -38,6 +39,8 @@ def thread_envio(client_socket):
             # Regra de negócio: se o comando for :quit, quebra o loop e inicia o encerramento
             if msg.strip() == ':quit':
                 print("[!] Desconectando...")
+                #Dá um tempo de 500ms para a Thread 2 printar o adeus do server
+                time.sleep(0.5)
                 break
         except EOFError:
             break
