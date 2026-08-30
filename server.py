@@ -24,6 +24,12 @@ def thread_recepcao(conn):
             # Decodifica e armazena na memória compartilhada
             msg = data.decode('utf-8')
             fila_mensagens.put(msg)
+
+            #Se for o comando de saída, interrompe a leitura do socket antes que o cliente feche a conexão do outro lado e cause erro
+            if msg.strip() == ':quit':
+                print("\n[!] Cliente solicitou desconexão.")
+                break
+            
             
         except ConnectionResetError:
             print("\n[!] Conexão perdida com o cliente.")
@@ -61,10 +67,21 @@ def thread_processamento(conn, addr):
                     # Quebra a string no primeiro espaço e pega a segunda parte
                     nome_usuario = msg.split(' ', 1)[1].strip()
                     
-                    # NOVA LINHA: Envia a confirmação de volta para o cliente
+                    #Envia a confirmação de volta para o cliente
                     confirmacao = f"\n[SERVER] Nome atualizado para: {nome_usuario}"
                     conn.sendall(confirmacao.encode('utf-8'))
+                    print(f"[!] Cliente {addr} atualizou o nome para: {nome_usuario}")
+
+                #Intercepta o :quit e finaliza a conexão    
+                elif msg.strip() == ':quit':
+                    despedida = "\n[SERVER] Encerrando conexão."
+                    try:
+                        conn.sendall(despedida.encode('utf-8'))
+                    except OSError:
+                        pass
                     
+                    # O break mata a Thread 2 de forma limpa
+                    break    
             else:
                 # É uma mensagem normal. 
                 # Pela especificação da Fase 1, o remetente recebe o eco.
