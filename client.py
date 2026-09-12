@@ -2,6 +2,7 @@ import socket
 import threading
 import sys
 import time
+import os
 
 HOST = '127.0.0.1'
 PORT = 5000
@@ -16,13 +17,16 @@ def thread_escuta(client_socket):
             if not data:
                 # Se data for vazio, o servidor caiu ou encerrou a conexão
                 print("\n[!] Conexão encerrada pelo servidor.")
-                break
+
+                # Derruba o processo inteiro na hora, matando o input() travado
+                os._exit(0)  
+                
             
             # Imprime a mensagem recebida formatada
             print(f"\n{data.decode('utf-8')}")
         except OSError:
             # Erro de IO padrão ao fechar o socket forçadamente
-            break
+            os._exit(0)
 
 def thread_envio(client_socket):
     """
