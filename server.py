@@ -3,12 +3,16 @@ import threading
 import queue
 import time
 from datetime import datetime
+import sys
 
 HOST = '127.0.0.1'
 PORT = 5000
 
 # Estrutura de dados em memória compartilhada (thread-safe nativo)
 fila_mensagens = queue.Queue()
+
+# Lista global que vai guardar as conexões ativas para podermos fazer o broadcast e contar as vagas depois
+clientes_ativos = []
 
 def thread_recepcao(conn):
     """
@@ -97,33 +101,40 @@ def thread_processamento(conn, addr):
             break
 
 def start_server():
+    # Validação do argumento de linha de comando para o limite de clientes
+    if len(sys.argv) < 2:
+        print("[!] Uso correto: python server.py <limite_de_clientes>")
+        sys.exit(1)
+
+    try:
+        limite_clientes = int(sys.argv[1])
+    except ValueError:
+        print("[!] O limite de clientes deve ser um número inteiro.")
+        sys.exit(1)
+
+        
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((HOST, PORT))
-    server_socket.listen(1)
+    server_socket.listen()
+
+    print(f"Servidor escutando em {HOST}:{PORT} | Lotação máxima: {limite_clientes} usuários...")
+
+    # Loop do acept()
+    while True:
+        try:
+            conn, addr = server_socket.accept()
+            print(f"[!] Tenativa de conexão de um novo cliente de {addr}")
+
+            t_work = threading.Thread(target=working_thread, args=(conn, addr, limite_clientes), daemon=True)
+            t_work.start()
+
+        except KeyboardInterrupt:
+            print("\n[!] Servidor encerrando...")
+            break
+
     
-    print(f"Servidor escutando em {HOST}:{PORT}...")
-
-    conn, addr = server_socket.accept()
-    print(f"Conexão recebida de {addr}")
-
-    # Envia a mensagem de confirmação (MSG1)
-    agora = datetime.now().strftime("%H:%M")
-    conn.sendall(f"<{agora}>: CONECTADO!!".encode('utf-8'))
-
-    # Inicializa as threads passando o handler da conexão
-    t1 = threading.Thread(target=thread_recepcao, args=(conn,), daemon=True)
-    t2 = threading.Thread(target=thread_processamento, args=(conn, addr), daemon=True)
-    
-    t1.start()
-    t2.start()
-
-    # Mantém a thread principal do servidor rodando enquanto a Thread 1 estiver ativa
-    t1.join()
-    
-    conn.close()
     server_socket.close()
 
 if __name__ == "__main__":
     start_server()
 
-# Fim da FASE 1
