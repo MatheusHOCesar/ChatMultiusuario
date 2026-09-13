@@ -8,6 +8,8 @@ import sys
 HOST = '127.0.0.1'
 PORT = 5000
 
+clientes_ativos = []
+
 # Estrutura de dados em memória compartilhada (thread-safe nativo)
 fila_mensagens = queue.Queue()
 
@@ -99,6 +101,55 @@ def thread_processamento(conn, addr):
             continue
         except OSError:
             break
+
+def working_thread(conn, addr, limite_clientes):
+    """
+    Thread de trabalho instanciada pelo accept() para cada nova conexão.
+    """
+    # 1. Trava de lotação
+    if len(clientes_ativos) >= limite_clientes:
+        msg_erro = "\n[!] Limite de usuários excedido. Tente novamente mais tarde."
+        try:
+            conn.sendall(msg_erro.encode('utf-8'))
+        except OSError:
+            pass
+        
+        conn.close()
+        print(f"[!] Conexão de {addr} recusada (lotação atingida).")
+        return
+
+    # 2. Alocação do cliente
+    clientes_ativos.append(conn)
+    print(f"[+] Cliente {addr} conectado. Lotação: {len(clientes_ativos)}/{limite_clientes}")
+
+    # 3. Envio da confirmação inicial
+    agora = datetime.now().strftime("%H:%M")
+    try:
+        conn.sendall(f"<{agora}>: CONECTADO!!".encode('utf-8'))
+    except OSError:
+        clientes_ativos.remove(conn)
+        conn.close()
+        return
+
+    # 4. Fila exclusiva para evitar corrida de threads
+    fila_cliente = queue.Queue()
+
+    # 5. Inicia as sub-threads deste cliente
+    t1 = threading.Thread(target=thread_recepcao, args=(conn, fila_cliente), daemon=True)
+    t2 = threading.Thread(target=thread_processamento, args=(conn, addr, fila_cliente), daemon=True)
+    
+    t1.start()
+    t2.start()
+
+    # Segura a thread viva até o cliente dar o :quit
+    t1.join()
+
+    # 6. Desalocação
+    if conn in clientes_ativos:
+        clientes_ativos.remove(conn)
+    conn.close()
+    
+    print(f"[-] Cliente {addr} desconectou. Vaga liberada. Lotação: {len(clientes_ativos)}/{limite_clientes}")
 
 def start_server():
     # Validação do argumento de linha de comando para o limite de clientes
