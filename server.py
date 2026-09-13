@@ -41,7 +41,7 @@ def thread_recepcao(conn):
             print("\n[!] Conexão perdida com o cliente.")
             break
 
-def thread_processamento(conn, addr):
+def thread_processamento(conn, addr, fila_cliente):
     """
     Thread 2: Varre a memória compartilhada, processa comandos e envia o output ao cliente.
     """
@@ -64,7 +64,7 @@ def thread_processamento(conn, addr):
             ultimo_envio_tempo = agora_ts
         
         try:
-            msg = fila_mensagens.get(timeout=1) 
+            msg = fila_cliente.get(timeout=1) 
             
             # Lógica de comandos vs mensagens
             if msg.startswith(':'):
@@ -89,67 +89,32 @@ def thread_processamento(conn, addr):
                     # O break mata a Thread 2 de forma limpa
                     break    
             else:
-                # É uma mensagem normal. 
-                # Pela especificação da Fase 1, o remetente recebe o eco.
+                # LÓGICA DE BROADCAST (FASE 2)
+                hora_atual = datetime.now().strftime("%H:%M")
+                msg_publica = f"{nome_usuario} ({hora_atual}): {msg}"
                 eco = f"Voce digitou: {msg}"
-                conn.sendall(eco.encode('utf-8'))
                 
-            
-            fila_mensagens.task_done()
+                # 1. Envia o eco para quem mandou a mensagem
+                try:
+                    conn.sendall(eco.encode('utf-8'))
+                except OSError:
+                    pass
+                
+                # 2. Varre a lista global e envia a mensagem pública para os outros
+                for cliente_socket in clientes_ativos:
+                    if cliente_socket != conn:
+                        try:
+                            cliente_socket.sendall(f"\n{msg_publica}".encode('utf-8'))
+                        except OSError:
+                            pass # Se a conexão de outro cara falhou, ignora e segue o loop
+            fila_cliente.task_done()
             
         except queue.Empty:
             continue
         except OSError:
             break
 
-def working_thread(conn, addr, limite_clientes):
-    """
-    Thread de trabalho instanciada pelo accept() para cada nova conexão.
-    """
-    # 1. Trava de lotação
-    if len(clientes_ativos) >= limite_clientes:
-        msg_erro = "\n[!] Limite de usuários excedido. Tente novamente mais tarde."
-        try:
-            conn.sendall(msg_erro.encode('utf-8'))
-        except OSError:
-            pass
-        
-        conn.close()
-        print(f"[!] Conexão de {addr} recusada (lotação atingida).")
-        return
 
-    # 2. Alocação do cliente
-    clientes_ativos.append(conn)
-    print(f"[+] Cliente {addr} conectado. Lotação: {len(clientes_ativos)}/{limite_clientes}")
-
-    # 3. Envio da confirmação inicial
-    agora = datetime.now().strftime("%H:%M")
-    try:
-        conn.sendall(f"<{agora}>: CONECTADO!!".encode('utf-8'))
-    except OSError:
-        clientes_ativos.remove(conn)
-        conn.close()
-        return
-
-    # 4. Fila exclusiva para evitar corrida de threads
-    fila_cliente = queue.Queue()
-
-    # 5. Inicia as sub-threads deste cliente
-    t1 = threading.Thread(target=thread_recepcao, args=(conn, fila_cliente), daemon=True)
-    t2 = threading.Thread(target=thread_processamento, args=(conn, addr, fila_cliente), daemon=True)
-    
-    t1.start()
-    t2.start()
-
-    # Segura a thread viva até o cliente dar o :quit
-    t1.join()
-
-    # 6. Desalocação
-    if conn in clientes_ativos:
-        clientes_ativos.remove(conn)
-    conn.close()
-    
-    print(f"[-] Cliente {addr} desconectou. Vaga liberada. Lotação: {len(clientes_ativos)}/{limite_clientes}")
 
 def start_server():
     # Validação do argumento de linha de comando para o limite de clientes
