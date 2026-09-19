@@ -8,15 +8,11 @@ import sys
 HOST = '127.0.0.1'
 PORT = 5000
 
-clientes_ativos = []
-
-# Estrutura de dados em memória compartilhada (thread-safe nativo)
-fila_mensagens = queue.Queue()
 
 # Lista global que vai guardar as conexões ativas para podermos fazer o broadcast e contar as vagas depois
 clientes_ativos = []
 
-def thread_recepcao(conn):
+def thread_recepcao(conn, fila_cliente):
     """
     Thread 1: Lê do socket e salva na memória compartilhada (loop infinito).
     """
@@ -29,7 +25,7 @@ def thread_recepcao(conn):
             
             # Decodifica e armazena na memória compartilhada
             msg = data.decode('utf-8')
-            fila_mensagens.put(msg)
+            fila_cliente.put(msg)
 
             #Se for o comando de saída, interrompe a leitura do socket antes que o cliente feche a conexão do outro lado e cause erro
             if msg.strip() == ':quit':
@@ -114,6 +110,56 @@ def thread_processamento(conn, addr, fila_cliente):
         except OSError:
             break
 
+def working_thread(conn, addr, limite_clientes):
+    """
+    Thread de trabalho instanciada pelo accept() para cada nova conexão.
+    Valida o limite de usuários e gerencia o ciclo de vida do cliente.
+    """
+    # Trava de lotação
+    if len(clientes_ativos) >= limite_clientes:
+        msg_erro = "\n[!] Limite de usuários excedido. Tente novamente mais tarde."
+        try:
+            conn.sendall(msg_erro.encode('utf-8'))
+        except OSError:
+            pass
+        
+        # Encerra a conexão conforme a especificação da Fase 2
+        conn.close()
+        print(f"[!] Conexão de {addr} recusada (lotação atingida).")
+        return
+
+    # Alocação do cliente
+    clientes_ativos.append(conn)
+    print(f"[+] Cliente {addr} conectado. Lotação: {len(clientes_ativos)}/{limite_clientes}")
+
+    # Envio da mensagem de confirmação inicial
+    agora = datetime.now().strftime("%H:%M")
+    try:
+        conn.sendall(f"<{agora}>: CONECTADO!!".encode('utf-8'))
+    except OSError:
+        clientes_ativos.remove(conn)
+        conn.close()
+        return
+
+    # Cria uma fila EXCLUSIVA para este cliente
+    fila_cliente = queue.Queue()
+
+    # Inicia as threads de recepção e processamento para esse socket
+    t1 = threading.Thread(target=thread_recepcao, args=(conn, fila_cliente), daemon=True)
+    t2 = threading.Thread(target=thread_processamento, args=(conn, addr, fila_cliente), daemon=True)
+    
+    t1.start()
+    t2.start()
+
+    # A working_thread pausa aqui esperando a thread de recepção ser encerrada pelo comando :quit
+    t1.join()
+
+    # Desalocação e liberação de slot exigida pela Fase 2
+    if conn in clientes_ativos:
+        clientes_ativos.remove(conn)
+    conn.close()
+    
+    print(f"[-] Cliente {addr} desconectou. Vaga liberada. Lotação: {len(clientes_ativos)}/{limite_clientes}")
 
 
 def start_server():
