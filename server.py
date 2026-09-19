@@ -94,14 +94,14 @@ def thread_processamento(conn, addr, fila_cliente):
                 try:
                     conn.sendall(eco.encode('utf-8'))
                 except OSError:
-                    pass
+                    break
                 
                 # 2. Varre a lista global e envia a mensagem pública para os outros
                 for cliente_socket in clientes_ativos:
                     if cliente_socket != conn:
                         try:
                             cliente_socket.sendall(f"\n{msg_publica}".encode('utf-8'))
-                        except OSError:
+                        except (OSError, BrokenPipeError):
                             pass # Se a conexão de outro cara falhou, ignora e segue o loop
             fila_cliente.task_done()
             
