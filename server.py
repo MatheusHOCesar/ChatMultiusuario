@@ -33,8 +33,8 @@ def thread_recepcao(conn, fila_cliente):
                 break
             
             
-        except ConnectionResetError:
-            print("\n[!] Conexão perdida com o cliente.")
+        except (ConnectionResetError, ConnectionAbortedError, OSError):
+            print("\n[!] Desconexão forçada pelo cliente.")
             break
 
 def thread_processamento(conn, addr, fila_cliente):
